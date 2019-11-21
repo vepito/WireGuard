@@ -181,7 +181,7 @@ get_fwmark() {
 }
 
 add_default() {
-	local table proto key value
+	local table proto iptables key value i
 	if ! get_fwmark table; then
 		table=51820
 		while [[ -n $(ip -4 route show table $table) || -n $(ip -6 route show table $table) ]]; do
@@ -190,16 +190,29 @@ add_default() {
 		cmd wg set "$INTERFACE" fwmark $table
 	fi
 	proto=-4
-	[[ $1 == *:* ]] && proto=-6
+	iptables=iptables
+	[[ $1 == *:* ]] && { proto=-6; iptables=ip6tables; }
 	cmd ip $proto route add "$1" dev "$INTERFACE" table $table
 	cmd ip $proto rule add not fwmark $table table $table
 	cmd ip $proto rule add table main suppress_prefixlength 0
-	if [[ $proto == -4 ]]; then
-		while read -r key _ value; do
-			[[ $value -eq 1 ]] && sysctl -q "$key=2"
-		done < <(sysctl -a -r '^net\.ipv4.conf\.[^ .=]+\.rp_filter$')
-	fi
+	for i in "${ADDRESSES[@]}"; do
+		[[ ( $proto == -4 && $i != *:* ) || ( $proto == -6 && $i == *:* ) ]] || continue
+		cmd $iptables -w -t raw -I PREROUTING \! -i "$INTERFACE" -d "${i%/*}" -j DROP -m comment --comment "wg-quick(8) rule for $INTERFACE"
+	done
+	cmd $iptables -w -t mangle -I POSTROUTING -m mark --mark $table -p udp -j CONNMARK --save-mark -m comment --comment "wg-quick(8) rule for $INTERFACE"
+	cmd $iptables -w -t mangle -I PREROUTING -p udp -j CONNMARK --restore-mark -m comment --comment "wg-quick(8) rule for $INTERFACE"
+	[[ $proto == -4 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1
 	return 0
+}
+
+remove_iptables() {
+	local line iptables
+	for iptables in iptables ip6tables; do
+		while read -r line; do
+			[[ $line == "*"* || $line == COMMIT || $line == "-A "*"--comment \"wg-quick(8) rule for $INTERFACE\""* ]] || continue
+			echo "${line/#-A/-D}"
+		done < <($iptables-save) | cmd $iptables-restore -n -w
+	done
 }
 
 set_config() {
@@ -303,6 +316,7 @@ cmd_down() {
 	[[ $SAVE_CONFIG -eq 0 ]] || save_config
 	del_if
 	unset_dns
+	remove_iptables
 	execute_hooks "${POST_DOWN[@]}"
 }
 
