@@ -5,6 +5,8 @@ WireGuard is a novel VPN that runs inside the Linux Kernel and utilizes **state-
 
 **More information may be found at [WireGuard.com](https://www.wireguard.com/).**
 
+Added an option to disable the insertion of routes by wg-quick. Routes added by wg-quick conflicts with dynamic routing (bird ...).<br />
+
 ## License
 
 This project is released under the [GPLv2](COPYING).

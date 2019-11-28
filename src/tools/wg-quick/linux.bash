@@ -13,6 +13,7 @@ export PATH="${SELF%/*}:$PATH"
 
 WG_CONFIG=""
 INTERFACE=""
+ADDROUTE=true
 ADDRESSES=( )
 MTU=""
 DNS=( )
@@ -57,6 +58,7 @@ parse_options() {
 			Address) ADDRESSES+=( ${value//,/ } ); continue ;;
 			MTU) MTU="$value"; continue ;;
 			DNS) DNS+=( ${value//,/ } ); continue ;;
+			AddRoute) ADDROUTE="$value"; continue ;;
 			Table) TABLE="$value"; continue ;;
 			PreUp) PRE_UP+=( "$value" ); continue ;;
 			PreDown) PRE_DOWN+=( "$value" ); continue ;;
@@ -310,9 +312,11 @@ cmd_up() {
 	done
 	set_mtu_up
 	set_dns
-	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+/[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" allowed-ips) | sort -nr -k 2 -t /); do
-		add_route "$i"
-	done
+	if [[ $ADDROUTE == true ]]; then
+		for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+/[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" allowed-ips) | sort -nr -k 2 -t /); do
+			add_route "$i"
+		done
+	fi
 	execute_hooks "${POST_UP[@]}"
 	trap - INT TERM EXIT
 }
